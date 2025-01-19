@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 import subprocess
 import webbrowser
+import threading
 
 def display_banner_with_dog(text, width=50, char="*"):
     """
@@ -146,6 +147,7 @@ def get_user_inputs():
         total_registros = len(data)
         exitosos = 0
         con_error = 0
+        download_semaphore = threading.Semaphore(5)
 
         for index, numeroRadicacion in enumerate(data):
             numeroRadicacion = str(numeroRadicacion).strip()[:23]
@@ -221,25 +223,17 @@ def get_user_inputs():
                         if descargar_adjuntos.lower() == 's':
                             carpeta_descargas = f"./{numeroRadicacion}"
                             os.makedirs(carpeta_descargas, exist_ok=True)                    
+                            threads = []
                             for url in urls_documentos:
-                                try:
-                                    archivo_response = requests.get(url, headers=headers_documentos)
-                                    if archivo_response.status_code == 200:
-                                        content_disposition = archivo_response.headers.get('Content-Disposition')
-                                        if content_disposition:
-                                            match = re.search(r'filename\*?=([^;]+)', content_disposition)
-                                            if match:
-                                                nombre_archivo = match.group(1).strip().strip('"').split("''")[-1]
-                                            else:
-                                                nombre_archivo = url.split("/")[-1]
-                                        else:
-                                            nombre_archivo = url.split("/")[-1]
-                                        ruta_archivo = os.path.join(carpeta_descargas, nombre_archivo)
-                                        with open(ruta_archivo, 'wb') as archivo:
-                                            archivo.write(archivo_response.content)
-                                except Exception as e:
-                                    print_to_output(f"Error descargando o guardando el archivo {url}: {e}")
-                                    continue
+                                with download_semaphore:
+                                    t = threading.Thread(
+                                        target=download_file_threaded,
+                                        args=(url, headers_documentos, carpeta_descargas))
+                                t.start()
+                                threads.append(t)
+                        # Esperar a que todos los hilos terminen
+                        for t in threads:
+                            t.join()
                     else:
                         resultado.append("")
                 else:
@@ -326,6 +320,36 @@ def get_column_data(df):
         list: Contiene los datos de la columna especificada.
     """
     return df.iloc[:, 0].dropna().tolist()
+
+def download_file_threaded(url, headers, carpeta_descargas):
+    """
+    Descarga un archivo desde una URL y lo guarda en una carpeta específica.
+
+    Args:
+        url (str): La URL del archivo a descargar.
+        headers (dict): Encabezados HTTP para la solicitud.
+        carpeta_descargas (str): Carpeta donde se guardará el archivo.
+    """
+    try:
+        archivo_response = requests.get(url, headers=headers)
+        if archivo_response.status_code == 200:
+            content_disposition = archivo_response.headers.get('Content-Disposition')
+            if content_disposition:
+                match = re.search(r'filename\*?=([^;]+)', content_disposition)
+                if match:
+                    nombre_archivo = match.group(1).strip().strip('"').split("''")[-1]
+                else:
+                    nombre_archivo = url.split("/")[-1]
+            else:
+                nombre_archivo = url.split("/")[-1]
+
+            ruta_archivo = os.path.join(carpeta_descargas, nombre_archivo)
+            with open(ruta_archivo, 'wb') as archivo:
+                archivo.write(archivo_response.content)
+    except Exception as e:
+        print(f"Error descargando el archivo {url}: {e}")
+
+
 
 def main():
     display_banner_with_dog("Consulta información de Procesos Judiciales - by Miguel M")
