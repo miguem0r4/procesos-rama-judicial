@@ -243,7 +243,6 @@ def get_user_inputs():
 
                 fecha_hora_consulta = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 ws_resultado.append([numeroRadicacion, "Consultado correctamente", fecha_hora_consulta])
-
                 exitosos += 1
 
             except ValueError as e:
